@@ -32,6 +32,7 @@ import {
   ShellTool,
   EditTool,
   WriteFileTool,
+  Provider,
 } from '@google/gemini-cli-core';
 import type { Settings } from './settings.js';
 
@@ -56,6 +57,11 @@ const logger = {
 };
 
 export interface CliArgs {
+  provider: string | undefined;
+  'openai-base-url': string | undefined;
+  'openai-api-key': string | undefined;
+  'openai-extra-header': string[] | undefined;
+  'openai-token-cmd': string | undefined;
   model: string | undefined;
   sandbox: boolean | string | undefined;
   sandboxImage: string | undefined;
@@ -165,6 +171,28 @@ export async function parseArguments(settings: Settings): Promise<CliArgs> {
     )
     .command('$0 [promptWords...]', 'Launch Gemini CLI', (yargsInstance) =>
       yargsInstance
+        .option('provider', {
+          type: 'string',
+          description: 'The provider to use. Can be "gemini" or "openai".',
+          choices: ['gemini', 'openai'],
+        })
+        .option('openai-base-url', {
+          type: 'string',
+          description: 'The base URL for the OpenAI API.',
+        })
+        .option('openai-api-key', {
+          type: 'string',
+          description: 'The API key for the OpenAI API.',
+        })
+        .option('openai-extra-header', {
+          type: 'array',
+          string: true,
+          description: 'Extra headers to send to the OpenAI API.',
+        })
+        .option('openai-token-cmd', {
+          type: 'string',
+          description: 'A command to run to get a token for the OpenAI API.',
+        })
         .option('model', {
           alias: 'm',
           type: 'string',
@@ -565,6 +593,11 @@ export async function loadCliConfig(
       ? argv.screenReader
       : (settings.ui?.accessibility?.screenReader ?? false);
   return new Config({
+    provider: argv.provider as Provider,
+    openaiBaseUrl: argv['openai-base-url'],
+    openaiApiKey: argv['openai-api-key'],
+    openaiExtraHeader: argv['openai-extra-header'],
+    openaiTokenCmd: argv['openai-token-cmd'],
     sessionId,
     embeddingModel: DEFAULT_GEMINI_EMBEDDING_MODEL,
     sandbox: sandboxConfig,

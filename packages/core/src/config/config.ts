@@ -31,6 +31,7 @@ import { ReadManyFilesTool } from '../tools/read-many-files.js';
 import { MemoryTool, setGeminiMdFilename } from '../tools/memoryTool.js';
 import { WebSearchTool } from '../tools/web-search.js';
 import { GeminiClient } from '../core/client.js';
+import { OpenAIClient } from '../core/openaiClient.js';
 import { BaseLlmClient } from '../core/baseLlmClient.js';
 import { FileDiscoveryService } from '../services/fileDiscoveryService.js';
 import { GitService } from '../services/gitService.js';
@@ -60,6 +61,7 @@ import { RipgrepFallbackEvent } from '../telemetry/types.js';
 import type { FallbackModelHandler } from '../fallback/types.js';
 import { ModelRouterService } from '../routing/modelRouterService.js';
 import { OutputFormat } from '../output/types.js';
+import { Provider } from '../provider.js';
 
 // Re-export OAuth config type
 export type { MCPOAuthConfig, AnyToolInvocation };
@@ -184,6 +186,11 @@ export interface SandboxConfig {
 }
 
 export interface ConfigParameters {
+  provider?: Provider;
+  openaiBaseUrl?: string;
+  openaiApiKey?: string;
+  openaiExtraHeader?: string[];
+  openaiTokenCmd?: string;
   sessionId: string;
   embeddingModel?: string;
   sandbox?: SandboxConfig;
@@ -253,6 +260,11 @@ export interface ConfigParameters {
 export class Config {
   private toolRegistry!: ToolRegistry;
   private promptRegistry!: PromptRegistry;
+  private readonly provider: Provider;
+  private readonly openaiBaseUrl: string | undefined;
+  private readonly openaiApiKey: string | undefined;
+  private readonly openaiExtraHeader: string[] | undefined;
+  private readonly openaiTokenCmd: string | undefined;
   private readonly sessionId: string;
   private fileSystemService: FileSystemService;
   private contentGeneratorConfig!: ContentGeneratorConfig;
@@ -279,6 +291,7 @@ export class Config {
   private readonly telemetrySettings: TelemetrySettings;
   private readonly usageStatisticsEnabled: boolean;
   private geminiClient!: GeminiClient;
+  private openAIClient!: OpenAIClient;
   private baseLlmClient!: BaseLlmClient;
   private modelRouterService: ModelRouterService;
   private readonly fileFiltering: {
@@ -338,6 +351,11 @@ export class Config {
   private readonly useModelRouter: boolean;
 
   constructor(params: ConfigParameters) {
+    this.provider = params.provider ?? Provider.GEMINI;
+    this.openaiBaseUrl = params.openaiBaseUrl;
+    this.openaiApiKey = params.openaiApiKey;
+    this.openaiExtraHeader = params.openaiExtraHeader;
+    this.openaiTokenCmd = params.openaiTokenCmd;
     this.sessionId = params.sessionId;
     this.embeddingModel =
       params.embeddingModel ?? DEFAULT_GEMINI_EMBEDDING_MODEL;
@@ -444,7 +462,11 @@ export class Config {
     if (this.getProxy()) {
       setGlobalDispatcher(new ProxyAgent(this.getProxy() as string));
     }
-    this.geminiClient = new GeminiClient(this);
+    if (this.provider === Provider.OPENAI) {
+      this.openAIClient = new OpenAIClient(this);
+    } else {
+      this.geminiClient = new GeminiClient(this);
+    }
     this.modelRouterService = new ModelRouterService(this);
   }
 
@@ -465,7 +487,7 @@ export class Config {
     this.promptRegistry = new PromptRegistry();
     this.toolRegistry = await this.createToolRegistry();
 
-    await this.geminiClient.initialize();
+    await this.getClient().initialize();
   }
 
   getContentGenerator(): ContentGenerator {
@@ -479,8 +501,10 @@ export class Config {
       this.contentGeneratorConfig?.authType === AuthType.USE_GEMINI &&
       authMethod === AuthType.LOGIN_WITH_GOOGLE
     ) {
-      // Restore the conversation history to the new client
-      this.geminiClient.stripThoughtsFromHistory();
+      if (this.provider === Provider.GEMINI) {
+        // Restore the conversation history to the new client
+        this.geminiClient.stripThoughtsFromHistory();
+      }
     }
 
     const newContentGeneratorConfig = createContentGeneratorConfig(
@@ -722,7 +746,37 @@ export class Config {
   }
 
   getGeminiClient(): GeminiClient {
+    if (this.provider !== Provider.GEMINI) {
+      throw new Error('Gemini client is not available for the current provider');
+    }
     return this.geminiClient;
+  }
+
+  getClient(): GeminiClient | OpenAIClient {
+    if (this.provider === Provider.OPENAI) {
+      return this.openAIClient;
+    }
+    return this.geminiClient;
+  }
+
+  getProvider(): Provider {
+    return this.provider;
+  }
+
+  getOpenAIBaseUrl(): string | undefined {
+    return this.openaiBaseUrl;
+  }
+
+  getOpenAIApiKey(): string | undefined {
+    return this.openaiApiKey;
+  }
+
+  getOpenAIExtraHeaders(): string[] | undefined {
+    return this.openaiExtraHeader;
+  }
+
+  getOpenAITokenCmd(): string | undefined {
+    return this.openaiTokenCmd;
   }
 
   getModelRouterService(): ModelRouterService {
